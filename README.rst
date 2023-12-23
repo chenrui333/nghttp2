@@ -66,8 +66,8 @@ To build and run the application programs (``nghttp``, ``nghttpd``,
 ``nghttpx`` and ``h2load``) in the ``src`` directory, the following packages
 are required:
 
-* OpenSSL >= 1.1.1; or LibreSSL >= 3.8.1; or aws-lc >= 1.19.0; or
-  BoringSSL
+* OpenSSL >= 1.1.1; or wolfSSL >= 3.6.6; or LibreSSL >= 3.8.1; or
+  aws-lc >= 1.19.0; or BoringSSL
 * libev >= 4.11
 * zlib >= 1.2.3
 * libc-ares >= 1.7.5
@@ -125,7 +125,7 @@ following libraries are required:
 
 * `OpenSSL with QUIC support
   <https://github.com/quictls/openssl/tree/OpenSSL_1_1_1w+quic>`_; or
-  LibreSSL (does not support 0RTT); or aws-lc; or
+  wolfSSL; or LibreSSL (does not support 0RTT); or aws-lc; or
   `BoringSSL <https://boringssl.googlesource.com/boringssl/>`_ (commit
   6ca49385b168f47a50e7172d82a590b218f55e4d)
 * `ngtcp2 <https://github.com/ngtcp2/ngtcp2>`_ >= 1.0.0

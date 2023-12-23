@@ -30,6 +30,7 @@
 #include "shrpx_log.h"
 #include "util.h"
 #include "template.h"
+#include "ssl_compat.h"
 
 using namespace nghttp2;
 
@@ -155,9 +156,15 @@ void test_shrpx_tls_cert_lookup_tree_add_ssl_ctx(void) {
   CU_ASSERT(0 == rv);
 
   CU_ASSERT(-1 == tree.lookup(StringRef::from_lit("not-used.nghttp2.org")));
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+  CU_ASSERT(0 == tree.lookup(StringRef::from_lit("www.test.nghttp2.org")));
+  CU_ASSERT(1 == tree.lookup(StringRef::from_lit("w.test.nghttp2.org")));
+  CU_ASSERT(2 == tree.lookup(StringRef::from_lit("test.nghttp2.org")));
+#else  // !NGHTTP2_OPENSSL_IS_WOLFSSL
   CU_ASSERT(0 == tree.lookup(StringRef::from_lit("test.nghttp2.org")));
   CU_ASSERT(1 == tree.lookup(StringRef::from_lit("w.test.nghttp2.org")));
   CU_ASSERT(2 == tree.lookup(StringRef::from_lit("www.test.nghttp2.org")));
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
   CU_ASSERT(3 == tree.lookup(StringRef::from_lit("test.example.com")));
 }
 

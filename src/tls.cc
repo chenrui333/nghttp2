@@ -29,10 +29,16 @@
 #include <mutex>
 #include <iostream>
 
-#include <openssl/crypto.h>
-#include <openssl/conf.h>
-
 #include "ssl_compat.h"
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/crypto.h>
+#  include <wolfssl/openssl/conf.h>
+#else // !NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <openssl/crypto.h>
+#  include <openssl/conf.h>
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
 namespace nghttp2 {
 

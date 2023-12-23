@@ -29,9 +29,14 @@
 
 #include <cinttypes>
 
-#include <openssl/ssl.h>
-
 #include "ssl_compat.h"
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/ssl.h>
+#else // !NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <openssl/ssl.h>
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
 namespace nghttp2 {
 
@@ -52,7 +57,9 @@ constexpr char DEFAULT_CIPHER_LIST[] =
 //
 // https://wiki.mozilla.org/Security/Server_Side_TLS
 constexpr char DEFAULT_TLS13_CIPHER_LIST[] =
-#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
     "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256"
 #else  // !NGHTTP2_GENUINE_OPENSSL && !NGHTTP2_OPENSSL_IS_LIBRESSL
     ""

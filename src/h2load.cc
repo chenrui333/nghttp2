@@ -48,7 +48,14 @@
 #include <future>
 #include <random>
 
-#include <openssl/err.h>
+#include "ssl_compat.h"
+
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/err.h>
+#else // !NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <openssl/err.h>
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
 #ifdef ENABLE_HTTP3
 #  ifdef HAVE_LIBNGTCP2_CRYPTO_QUICTLS
@@ -57,6 +64,9 @@
 #  ifdef HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
 #    include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #  endif // HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
+#  ifdef HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
+#    include <ngtcp2/ngtcp2_crypto_wolfssl.h>
+#  endif // HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
 #endif   // ENABLE_HTTP3
 
 #include "url-parser/url_parser.h"
@@ -71,7 +81,6 @@
 #include "http2.h"
 #include "util.h"
 #include "template.h"
-#include "ssl_compat.h"
 
 #ifndef O_BINARY
 #  define O_BINARY (0)
@@ -87,6 +96,10 @@ bool recorded(const std::chrono::steady_clock::time_point &t) {
 }
 } // namespace
 
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_BORINGSSL) ||                                   \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    (defined(NGHTTP2_OPENSSL_IS_WOLFSSL) && defined(HAVE_SECRET_CALLBACK))
 namespace {
 std::ofstream keylog_file;
 void keylog_callback(const SSL *ssl, const char *line) {
@@ -95,6 +108,9 @@ void keylog_callback(const SSL *ssl, const char *line) {
   keylog_file.flush();
 }
 } // namespace
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_BORINGSSL ||
+       // NGHTTP2_OPENSSL_IS_LIBRESSL || (NGHTTP2_OPENSSL_IS_WOLFSSL &&
+       // HAVE_SECRET_CALLBACK)
 
 Config::Config()
     : ciphers(tls::DEFAULT_CIPHER_LIST),
@@ -2937,6 +2953,13 @@ int main(int argc, char **argv) {
       exit(EXIT_FAILURE);
     }
 #  endif // HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
+#  ifdef HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
+    if (ngtcp2_crypto_wolfssl_configure_client_context(ssl_ctx) != 0) {
+      std::cerr << "ngtcp2_crypto_wolfssl_configure_client_context failed"
+                << std::endl;
+      exit(EXIT_FAILURE);
+    }
+#  endif // HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
 #endif   // ENABLE_HTTP3
   } else if (nghttp2::tls::ssl_ctx_set_proto_versions(
                  ssl_ctx, nghttp2::tls::NGHTTP2_TLS_MIN_VERSION,
@@ -2952,19 +2975,32 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (SSL_CTX_set_ciphersuites(ssl_ctx, config.tls13_ciphers.c_str()) == 0) {
     std::cerr << "SSL_CTX_set_ciphersuites with " << config.tls13_ciphers
               << " failed: " << ERR_error_string(ERR_get_error(), nullptr)
               << std::endl;
     exit(EXIT_FAILURE);
   }
-#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL ||
+       // NGHTTP2_OPENSSL_IS_WOLFSSL
 
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+  // Passing X25519 to SSL_CTX_set1_groups_list fails for some reason.
+  if (SSL_CTX_set1_curves_list(
+          ssl_ctx, const_cast<char *>(config.groups.c_str())) != 1) {
+    std::cerr << "SSL_CTX_set1_curves_list failed"
+              << ERR_error_string(ERR_get_error(), nullptr) << std::endl;
+    exit(EXIT_FAILURE);
+  }
+#else  // !NGHTTP2_OPENSSL_IS_WOLFSSL
   if (SSL_CTX_set1_groups_list(ssl_ctx, config.groups.c_str()) != 1) {
     std::cerr << "SSL_CTX_set1_groups_list failed" << std::endl;
     exit(EXIT_FAILURE);
   }
+#endif // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
   std::vector<unsigned char> proto_list;
   for (const auto &proto : config.alpn_list) {
@@ -2973,6 +3009,10 @@ int main(int argc, char **argv) {
 
   SSL_CTX_set_alpn_protos(ssl_ctx, proto_list.data(), proto_list.size());
 
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_BORINGSSL) ||                                   \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    (defined(NGHTTP2_OPENSSL_IS_WOLFSSL) && defined(HAVE_SECRET_CALLBACK))
   auto keylog_filename = getenv("SSLKEYLOGFILE");
   if (keylog_filename) {
     keylog_file.open(keylog_filename, std::ios_base::app);
@@ -2980,6 +3020,9 @@ int main(int argc, char **argv) {
       SSL_CTX_set_keylog_callback(ssl_ctx, keylog_callback);
     }
   }
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_BORINGSSL ||
+       // NGHTTP2_OPENSSL_IS_LIBRESSL || (NGHTTP2_OPENSSL_IS_WOLFSSL &&
+       // HAVE_SECRET_CALLBACK)
 
   std::string user_agent = "h2load nghttp2/" NGHTTP2_VERSION;
   Headers shared_nva;
@@ -3145,6 +3188,10 @@ int main(int argc, char **argv) {
             cv.wait(ulk, [&ready] { return ready; });
           }
           worker->run();
+
+#  ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+          wc_ecc_fp_free();
+#  endif // NGHTTP2_OPENSSL_IS_WOLFSSL
         }));
   }
 

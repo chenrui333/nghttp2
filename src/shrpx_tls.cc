@@ -42,19 +42,29 @@
 
 #include "ssl_compat.h"
 
-#include <openssl/crypto.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-#include <openssl/rand.h>
-#include <openssl/dh.h>
-#ifndef OPENSSL_NO_OCSP
-#  include <openssl/ocsp.h>
-#endif // OPENSSL_NO_OCSP
-#if OPENSSL_3_0_0_API
-#  include <openssl/params.h>
-#  include <openssl/core_names.h>
-#  include <openssl/decoder.h>
-#endif // OPENSSL_3_0_0_API
+#ifdef NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <wolfssl/options.h>
+#  include <wolfssl/openssl/crypto.h>
+#  include <wolfssl/openssl/x509.h>
+#  include <wolfssl/openssl/x509v3.h>
+#  include <wolfssl/openssl/rand.h>
+#  include <wolfssl/openssl/dh.h>
+#  include <wolfssl/openssl/ocsp.h>
+#else // !NGHTTP2_OPENSSL_IS_WOLFSSL
+#  include <openssl/crypto.h>
+#  include <openssl/x509.h>
+#  include <openssl/x509v3.h>
+#  include <openssl/rand.h>
+#  include <openssl/dh.h>
+#  ifndef OPENSSL_NO_OCSP
+#    include <openssl/ocsp.h>
+#  endif // OPENSSL_NO_OCSP
+#  if OPENSSL_3_0_0_API
+#    include <openssl/params.h>
+#    include <openssl/core_names.h>
+#    include <openssl/decoder.h>
+#  endif // OPENSSL_3_0_0_API
+#endif   // !NGHTTP2_OPENSSL_IS_WOLFSSL
 #ifdef NGHTTP2_OPENSSL_IS_BORINGSSL
 #  include <openssl/hmac.h>
 #endif // NGHTTP2_OPENSSL_IS_BORINGSSL
@@ -70,6 +80,9 @@
 #  ifdef HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
 #    include <ngtcp2/ngtcp2_crypto_boringssl.h>
 #  endif // HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
+#  ifdef HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
+#    include <ngtcp2/ngtcp2_crypto_wolfssl.h>
+#  endif // HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
 #endif   // ENABLE_HTTP3
 
 #include "shrpx_log.h"
@@ -908,13 +921,16 @@ SSL_CTX *create_ssl_context(const char *private_key_file, const char *cert_file,
     DIE();
   }
 
-#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (SSL_CTX_set_ciphersuites(ssl_ctx, tlsconf.tls13_ciphers.c_str()) == 0) {
     LOG(FATAL) << "SSL_CTX_set_ciphersuites " << tlsconf.tls13_ciphers
                << " failed: " << ERR_error_string(ERR_get_error(), nullptr);
     DIE();
   }
-#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL ||
+       // NGHTTP2_OPENSSL_IS_WOLFSSL
 
 #ifndef OPENSSL_NO_EC
   if (SSL_CTX_set1_curves_list(ssl_ctx, tlsconf.ecdh_curves.c_str()) != 1) {
@@ -1093,12 +1109,14 @@ SSL_CTX *create_ssl_context(const char *private_key_file, const char *cert_file,
   }
 #endif // NGHTTP2_OPENSSL_IS_BORINGSSL
 
-#ifdef NGHTTP2_GENUINE_OPENSSL
+#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (SSL_CTX_set_max_early_data(ssl_ctx, tlsconf.max_early_data) != 1) {
     LOG(FATAL) << "SSL_CTX_set_max_early_data failed: "
                << ERR_error_string(ERR_get_error(), nullptr);
     DIE();
   }
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_WOLFSSL
+#ifdef NGHTTP2_GENUINE_OPENSSL
   if (SSL_CTX_set_recv_max_early_data(ssl_ctx, tlsconf.max_early_data) != 1) {
     LOG(FATAL) << "SSL_CTX_set_recv_max_early_data failed: "
                << ERR_error_string(ERR_get_error(), nullptr);
@@ -1160,6 +1178,12 @@ SSL_CTX *create_quic_ssl_context(const char *private_key_file,
     DIE();
   }
 #  endif // HAVE_LIBNGTCP2_CRYPTO_BORINGSSL
+#  ifdef HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
+  if (ngtcp2_crypto_wolfssl_configure_server_context(ssl_ctx) != 0) {
+    LOG(FATAL) << "ngtcp2_crypto_wolfssl_configure_server_context failed";
+    DIE();
+  }
+#  endif // HAVE_LIBNGTCP2_CRYPTO_WOLFSSL
 
   const unsigned char sid_ctx[] = "shrpx";
   SSL_CTX_set_session_id_context(ssl_ctx, sid_ctx, sizeof(sid_ctx) - 1);
@@ -1173,13 +1197,16 @@ SSL_CTX *create_quic_ssl_context(const char *private_key_file,
     DIE();
   }
 
-#  if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#  if defined(NGHTTP2_GENUINE_OPENSSL) ||                                      \
+      defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                  \
+      defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (SSL_CTX_set_ciphersuites(ssl_ctx, tlsconf.tls13_ciphers.c_str()) == 0) {
     LOG(FATAL) << "SSL_CTX_set_ciphersuites " << tlsconf.tls13_ciphers
                << " failed: " << ERR_error_string(ERR_get_error(), nullptr);
     DIE();
   }
-#  endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL
+#  endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL ||
+         // NGHTTP2_OPENSSL_IS_WOLFSSL
 
 #  ifndef OPENSSL_NO_EC
   if (SSL_CTX_set1_curves_list(ssl_ctx, tlsconf.ecdh_curves.c_str()) != 1) {
@@ -1353,7 +1380,7 @@ SSL_CTX *create_quic_ssl_context(const char *private_key_file,
   }
 #  endif // NGHTTP2_OPENSSL_IS_BORINGSSL
 
-#  ifdef NGHTTP2_GENUINE_OPENSSL
+#  if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   auto &quicconf = config->quic;
 
   if (quicconf.upstream.early_data &&
@@ -1363,7 +1390,7 @@ SSL_CTX *create_quic_ssl_context(const char *private_key_file,
                << ERR_error_string(ERR_get_error(), nullptr);
     DIE();
   }
-#  endif // NGHTTP2_GENUINE_OPENSSL
+#  endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_WOLFSSL
 
 #  ifndef OPENSSL_NO_PSK
   SSL_CTX_set_psk_server_callback(ssl_ctx, psk_server_cb);
@@ -1415,14 +1442,17 @@ SSL_CTX *create_ssl_client_context(
     DIE();
   }
 
-#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   if (SSL_CTX_set_ciphersuites(ssl_ctx, tlsconf.client.tls13_ciphers.c_str()) ==
       0) {
     LOG(FATAL) << "SSL_CTX_set_ciphersuites " << tlsconf.client.tls13_ciphers
                << " failed: " << ERR_error_string(ERR_get_error(), nullptr);
     DIE();
   }
-#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL
+#endif // NGHTTP2_GENUINE_OPENSSL || NGHTTP2_OPENSSL_IS_LIBRESSL ||
+       // NGHTTP2_OPENSSL_IS_WOLFSSL
 
   SSL_CTX_set_mode(ssl_ctx, SSL_MODE_RELEASE_BUFFERS);
 
@@ -2402,7 +2432,9 @@ namespace {
 int time_t_from_asn1_time(time_t &t, const ASN1_TIME *at) {
   int rv;
 
-#if defined(NGHTTP2_GENUINE_OPENSSL) || defined(NGHTTP2_OPENSSL_IS_LIBRESSL)
+#if defined(NGHTTP2_GENUINE_OPENSSL) ||                                        \
+    defined(NGHTTP2_OPENSSL_IS_LIBRESSL) ||                                    \
+    defined(NGHTTP2_OPENSSL_IS_WOLFSSL)
   struct tm tm;
   rv = ASN1_TIME_to_tm(at, &tm);
   if (rv != 1) {
@@ -2410,7 +2442,8 @@ int time_t_from_asn1_time(time_t &t, const ASN1_TIME *at) {
   }
 
   t = nghttp2_timegm(&tm);
-#else // !NGHTTP2_GENUINE_OPENSSL && !NGHTTP2_OPENSSL_IS_LIBRESSL
+#else // !NGHTTP2_GENUINE_OPENSSL && !NGHTTP2_OPENSSL_IS_LIBRESSL &&
+      // !NGHTTP2_OPENSSL_IS_WOLFSSL
   auto b = BIO_new(BIO_s_mem());
   if (!b) {
     return -1;
@@ -2436,7 +2469,8 @@ int time_t_from_asn1_time(time_t &t, const ASN1_TIME *at) {
   }
 
   t = tt;
-#endif // !NGHTTP2_GENUINE_OPENSSL && !NGHTTP2_OPENSSL_IS_LIBRESSL
+#endif // !NGHTTP2_GENUINE_OPENSSL && !NGHTTP2_OPENSSL_IS_LIBRESSL &&
+       // !NGHTTP2_OPENSSL_IS_WOLFSSL
 
   return 0;
 }
